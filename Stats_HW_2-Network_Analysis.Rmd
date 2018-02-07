@@ -1,0 +1,374 @@
+---
+title: "Statistics-Homework 2"
+output: html_document
+---
+
+
+The first network is built by the following code. Simulation number is M and each time a new network is created 
+and saved. 
+
+(We run it for M=3 and 5000 nodes, because of computation time and speed. However it can be easily changed from below for loop (x in 5000))
+
+```{r pressure,message=F,warning=F}
+library(igraph)
+#g1_all is a list that saves each network that is created in each simulation
+g1_all=list(type = any)
+M=3  #simulation number
+for (m in 1:M){
+  g=graph(edges=c(1,2 ,2,3, 3,4 , 4,1),n=4,directed = T)  #initial graph is created
+  for (x in 5:5000){
+    
+    decision=sample(2,1)  # %50 chance the decision about the link is decided
+    if (decision==1){   #In first cases 1 link is added to a random node uniformly 
+      g=add.vertices(g,1)
+      link_node=sample(x-1,1)
+      
+      g=add.edges(g,c(x,link_node))
+      
+    }else if (decision==2){  #In second case, the linked node is choosen proportionally to its in-degree
+      
+      all_degrees_prob=degree(g,mode='in')/sum(degree(g,mode='in'))  #Each node's prob. according to in-degrees
+      #print(x)
+      link_node=sample(c(1:(x-1)),size=1,prob=all_degrees_prob)  #Linked node is choosen 
+      g=add.vertices(g,1)
+      
+      g=add.edges(g,c(x,link_node))
+      #print(x)
+    }
+    
+  }
+  g1_all[[m]]=g   #Each graph is added to g1_all list
+  }
+
+```
+
+
+##Degree Dist 
+We've plotted the degree distribution of the graphswith the arbitrary poisson and power law distrobution to 
+understand which one does the degree distribution follow.
+
+```{r,message=F,warning=F}
+
+for (m in 1:M){
+  
+  g1_degree=degree(g1_all[[m]],mode = 'in') 
+  x=c(1:length(g1_degree))
+  pois=dpois(x,mean(g1_degree))
+  powlaw_coef=power.law.fit(g1_degree)$alpha
+  
+  if (m>1) par(new=T) 
+  deg.dist <- igraph::degree_distribution(g1_all[[m]], cumulative=F, mode="in") 
+  if (m==1) plot(deg.dist, main='log degree dist') else  plot(deg.dist, ann=F, axes=F)  #Degree distribution of each network is  printed  on top of each other
+  par(new=TRUE)
+  plot(pois,type='l',ann=F, axes=F, col='blue') #arbitrary poisson distribution is plotted with blue
+  par(new=T)
+  plot(x,x^-powlaw_coef,type='l',ann=F,axes=F,col='red') #arbitary power law  is plotted with red
+  
+}
+```
+
+This graph is not very helpful to have a conlucsion. So we need to check the log-log graph. 
+
+
+
+
+##Degree Dist .. Log-log
+Log-log graph of in-degree distibution is plotted with arbitrary possion and power-law distributions.
+
+```{r,message=F,warning=F}
+for (m in 1:M){
+  g1_degree=degree(g1_all[[m]],mode = 'in')
+  x=c(1:length(g1_degree))
+  pois=dpois(x,mean(g1_degree))
+  powlaw_coef=power.law.fit(g1_degree)$alpha
+  
+  if (m>1) par(new=T)  
+  deg.dist <- igraph::degree_distribution(g1_all[[m]], cumulative=F, mode="in")
+  if (m==1) plot(deg.dist, main='log degree dist', log='xy') else plot(deg.dist, log='xy',ann=F,axes=F)
+  par(new=TRUE)
+  plot(pois,type='l',ann=F, axes=F, col='blue',log='xy')
+  par(new=T)
+  plot(x,x^-powlaw_coef,type='l',ann=F,axes=F,col='red',log='xy')
+}
+
+```
+
+Here we can more  clearly see that out in-degree distribution is much closer to power-law distribution. 
+
+
+##Complementary CDF- Degree Dist- Log-Log
+Complementary CDF of degree distribution should follow a  straight line in in a power law distribution. Here we will again check our graph with an arbitrary power-law distribution to have  a better insight.
+
+```{r,message=F,warning=F}
+  for (m in 1:M){
+  deg.dist.cum <- igraph::degree_distribution(g1_all[[m]], cumulative=T, mode="in") #this function automatically creates ccdf instead of cdf when cumulative argument is True
+  if (m>1) par(new=T)
+  if (m==1) plot(deg.dist.cum,log='xy', main='log ccdf') else plot(deg.dist.cum,log='xy', ann=F,axes=F)
+  par(new=T)
+  plot(x,x^-powlaw_coef,type='l',ann=F,axes=F,col='red',log='xy')
+}
+```
+
+As it can be seen from the plot, our in-degree distribution is very close to a straight line. From all of these plots, we can conclude that our in-degree distribution is much more likely to be a power-law distribtion then poisson ditrsibution. This result is actually not a suprise. We know  that poisson distribution is used to approximate random network models where each edge is created by probability p.(Random models does not have hubs.) On the other hand power-law is a approximation of real networks where edges created according to proportion of in-degree of the linked nodes.(Preferencial attachment) In our case, we created networks which mimics real networks more than random networks. With 50% chance, we created links with **preferencial attachment**, and with 50% uniformly. So our model is much closer to real networks(power-law) than random networks(poisson). Moreover by looking at the degrees we can see that our network has some hubs(nodes with many links) which is a feature of real networks that  can't be find  in random networks. 
+However  since we always forced a new node to have 1 outgoing link, we did not fully imitated real networks where a node can have more than several outgoing links. Moreover, we chosed to apply preferencial attachment with 50% chance, which we are not sure if optimal. This value has an important effect on the degree distribution. Because of these reeasons our network is a perfect copy of realy networks and thats why our degree distributions are not perfect power-law distribution. 
+
+A visualtion of hubs using ggplot2:
+```{r,echo=F,message=F,warning=F}
+library(GGally)
+library(ggplot2)
+library(sna)
+library(intergraph)
+```
+
+```{r,message=F,warning=F}
+ggnet2(g1_all[[1]], size = 'degree', arrow.size = 0.08) #node sizes are  determined by degrees
+```
+
+```{r,echo=F,message=F,,warning=F}
+detach('package:GGally')
+detach('package:ggplot2')
+detach('package:sna')
+detach('package:intergraph')
+detach('package:network')
+```
+
+Through a further research in igraph package we found a function which would be useful to support our reasoning. power.fit.law function takes input degree of the network and returns fitted alpha value(parameter of power-law function) and also makes Kolmogorov-Smirnov test which (the documentation states) is a mesure to evaluate whether the data have been drawn from power-law ditribution. It returns a p-value which small (less than 0.05) indicates that is not a  power-law dist. 
+
+```{r,message=F,warning=F}
+
+for (m in 1:M){
+  g1_degree=degree(g1_all[[m]],mode='in')
+  pval=power.law.fit(g1_degree)$KS.p
+  print(pval)
+
+  }
+```
+As it can be seen, returned  p-values are much higher than 0.05 threshold  which means it is much more likely that this model follows a power-law distribution.
+
+----
+#Question 3
+
+
+Networks are created in which each node has 3 links. 
+
+(We run it for M=3 and 5000 nodes, because of computation time and speed.However it can be easily changed from below fior loop (x in 5000))
+
+```{r}
+g2_all=list(type = any) #list that saves all graphs created through siumlation
+
+M=3 #simulation number
+for (m in 1:M){
+  g=make_full_graph(4,directed=T)
+  for (x in 5:5000){
+    all_degrees=degree(g,mode='in')/sum(degree(g,mode='in'))
+    g=add.vertices(g,1)
+    for (t in 1:3){
+      
+    decision=sample(2,1)
+    
+    if (decision==1){
+      pass=T
+      while (pass==T){ #This if statement is added to prevent, 2 outgoing links to go to same node.
+      pos=sample(x-1,1)
+      pass=are.connected(g,x,pos)  
+      }
+    g=add.edges(g,c(x,pos))
+      
+    }
+    else if (decision==2){
+      pass=T
+      while (pass==T){
+         rrr=sample(c(1:(x-1)),size=1,prob=all_degrees)
+         pass=are.connected(g,x,rrr)
+      }
+      g=add.edges(g,c(x,rrr))
+      
+    }
+    }
+  }
+  g2_all[[m]]=g
+}
+
+
+```
+
+
+
+##Degree Dist
+Let's first look at the degree distribution of in-degree links. 
+
+```{r}
+
+for (m in 1:M){
+  g2_degree=degree(g2_all[[m]],mode='in')
+  x=c(1:length(g2_degree))
+  pois=dpois(x,mean(g2_degree))
+  powlaw_coef=power.law.fit(g2_degree)$alpha
+  
+  if (m>1) par(new=T)
+  deg.dist <- igraph::degree_distribution(g2_all[[m]], cumulative=F, mode="in")
+  if (m==1) plot(deg.dist, main='log degree dist') else  plot(deg.dist, ann=F, axes=F)
+  par(new=TRUE)
+  plot(pois,type='l',ann=F, axes=F, col='blue')
+  par(new=T)
+  plot(x,x^-powlaw_coef,type='l',ann=F,axes=F,col='red')
+}
+```
+
+Againn this plot is not very helpful... We need to look at the log-log plot
+
+##Degree Dist.. Log-log
+Just like the one link network, we've plotted in-degree distribtuion with arbitrary power-law and poisson distributions.
+
+```{r,message=F,warning=F}
+
+for (m in 1:M){
+  g2_degree=degree(g2_all[[m]],mode='in')
+  x=c(1:length(g2_degree))
+  pois=dpois(x,mean(g2_degree))
+  powlaw_coef=power.law.fit(g2_degree)$alpha
+  
+  if (m>1) par(new=T)
+  deg.dist <- igraph::degree_distribution(g2_all[[m]], cumulative=F, mode="in")
+  if (m==1) plot(deg.dist, main='log degree dist', log='xy') else  plot(deg.dist,log='xy',ann=F, axes=F)
+  par(new=TRUE)
+  plot(pois,type='l',ann=F, axes=F, col='blue',log='xy',lwd=2)
+  par(new=T)
+  plot(x,x^-powlaw_coef,type='l',ann=F,axes=F,col='red',log='xy', lwd=2)
+}
+```
+
+As it can be seen from the plot, again our degree distribution seems much more likely to be a power-law. 
+
+
+##Complementary CDF -Degree Dist. - Log-log 
+Lastly, complementary CDF is again plotted.
+
+```{r,message=F,warning=F}
+for (m in 1:M){
+  deg.dist.cum <- igraph::degree_distribution(g2_all[[m]], cumulative=T, mode="in")
+  if (m>1) par(new=T)
+  if (m==1) plot(deg.dist.cum,log='xy', main='log ccdf') else plot(deg.dist.cum,log='xy', ann=F,axes=F)
+  par(new=T)
+  plot(x,x^-powlaw_coef,type='l',ann=F,axes=F,col='red',log='xy', lwd=2)
+  par(new=TRUE)
+  plot((1-ppois(x,mean(g2_degree))),type='l',ann=F, axes=F, col='blue',log='xy',lwd=2)
+}
+```
+
+Even though number of outgoing links per node is changed from 1 to 3 for this network, we can see that the result did not change much. Although there are small shifts in the graphs, general picture seems to stay the same. Again we can clearly see there are hubs with a lot of links whereas most of the nodes have a few links. **So also this network seems to follow power-law much more than poisson.** As we can see in the foloowing network visualization, only difference between this one and the previous 1-link network is, this one has a greater range of number of in-degrees.(from ~3 to ~110 whereas previous one has ~1 to ~70) This sitution is due to the fact that we increeased number of edges added per new node created. 
+Just like the previous network, in this one, we forced each node to have 3 outgoing link which is against the nature of  real networks. So again altough it is closer to real networks its not a perfect copy of them and tahts why the degre distributions does not follow power-law perfectly.
+
+
+A visualtion of hubs using ggplot2:
+```{r,echo=F,message=F,warning=F}
+library(GGally)
+library(ggplot2)
+library(sna)
+library(intergraph)
+```
+
+```{r,message=F,warning=F}
+ggnet2(g2_all[[1]], size = 'degree', arrow.size = 0.08)
+```
+
+```{r,echo=F,message=F,,warning=F}
+detach('package:GGally')
+detach('package:ggplot2')
+detach('package:sna')
+detach('package:intergraph')
+detach('package:network')
+```
+
+
+To confirm our findings, power.law.fit function is used again. 
+```{r,message=F,warning=F}
+for (m in 1:M){
+  g1_degree=degree(g2_all[[m]],mode='in')
+  pval=power.law.fit(g2_degree)$KS.p
+  print(pval)
+  }
+
+```
+
+
+#Q4 -The Essay 
+
+
+###Introduction
+It drives more than what is to see on the first glance and the phenomena which is being mentioned is not a Gaussian distribution this time. Power law is a relationship of two variables where the relative change of first leads to a proportional relative change of the second. One quantity varies as a positive or negative power of the other quantity. Even though many members of the power law distribution family are documented, this essay focuses mainly on a continuous Pareto distribution and discrete Zipf's distribution. 
+Power law
+The demonstration of power law relation in a dataset usually points to specific mechanisms that possibly can indicate connection with on the first sight unconnected datasets and poses a challenge for many scientists for already a century. 
+A nonnegative random variable X has a power law distribution if 
+
+$$P(X>=x) \approx c*x^{-alpha}$$
+
+with constants c > 0 and alpha > 0. alpha is called the exponent of power law. 
+Real-world distributions typically follow power law only after some minimum value xmin. A judgement is then needed to determine the value xmin. One way is to perform a scan over all values of xmin. Once xmin is determined, the usual MLE (Maximum likelihood estimation) for alpha can be used.  A power law is usually visualized using a log log plot, where axes x and y have logarithmic scales. On such a plot, asymptotically the power law will form a straight line, where the exponent mainly influences its steepness. 
+Frequently desired operation is to estimate the exponent alpha from data samples. Usually a following formula obtained as MLE is used: 
+
+$$alpha=(1+n)*\sum_{i=1}^{n} ln(\frac{xi}{xmin})$$
+
+To detect or identify power law behavior of a given dataset it is not a good way to make a simple histogram a plot it on a log-log scale. After generating random numbers from the power law distribution, the log-scale histogram produces noisy tail area with non-linear behavior. This phenomenon happens because the number of samples in the bins becomes small and statistical fluctuations are large as a fraction of sample number. As a better and more stable approach, it is possible to plot rank-frequency plot. 
+
+###Pareto's distribution
+Being named after Vilfredo Pareto - Italian economist, it is a power law probability distribution used in description of social, scientific, and other types of phenomena. The most famous implication of describing this distribution is probably a Pareto principle which was first used in the connection to human wealth where 20 % of the population controls 80 % of the wealth. Pareto even witnessed in following cases: 20 % of peapods on his garden contain 80 % of total peas produced, most people wear only 20 percent of clothes they have for about 80 percent of time. Anorher excellent example of Pareto distribution which attracts almost everyone is if we exclude from our consumption small percentage of food (the unhealthy group of fatty and friend and sweet food), we will lose weight. This 20 % of consumables is responsible for 80 % weight gain.
+A Pareto distribution with parameters alpha > 0 and minimum value m > 0 has a tail function
+
+$$P(X>=x)=(\frac{x}{m})^{-alpha}$$
+
+Value ?? is a shape parameter and called the tail index.
+
+###Zipf's law
+Zipf's law is named after an American linguist George Kingsley Zipf, who even though was not the first to observe and document the phenomenon, was relentlessly active in attempts to explain it and find multiple existing use cases. However, his mathematical attempts to present a proof why it is present in seemingly unconnected areas of human society, and nature itself, were quite unsuccessful.
+Zipf's law tells that a frequency of an item or event is inversely proportional to its frequency rank. It was first described on the corpus of natural languages, while afterwards being further extended on various other topics. Let N be the number of elements, k be their rank, s the value of the exponent characterizing the distribution. Zipf's law predicts that out of a population of N elements, the frequency of elements of rank k, f (k, s, N), is
+
+$$f(k, s, N) = \frac{constant}{k^s}$$ 
+
+Zipf himself due to his occupation focused more on trying to find out why the law existed in the languages area. According to him the frequency distribution was a consequence of the law of least effort. Speakers were naturally expressing their thoughts with fewer and more frequently used words to enable easy understanding of their listeners. They in the opposite preferred larger vocabulary but a compromise was naturally created and led to the Zipf's law. If only the important vocabulary was used, the information would be too dense for a normal listener to follow for longer time. 
+One of the explanations of the naturality and inevitability of Zipf's law in human speech was presented by Benoit Mandelbrot. He stated that if a random keyboard typing was observed, because short words appeared exponentially more often than longer words, the words produced will also form according to Zipf's law. Later was shown however that previously said does not explain why words with their scope being highly constrained by something visible are also distributed according to Zipf's law.
+Zipfs's law is also used in information retrieval. The inverse document frequency(idf) score is a well working technique in document ranking and information retrieval. The intuition and one of the reasons this method works is Zipf's law on corpus. 
+
+###Preferential attachment Process
+Preferential attachment process is distribution of quantities in proportional to the previous state as its defined in Wikipedia page. It's the underlying process to explain why some networks or events follow power law distribution. In our example, new edges were added to the nodes, according to their in-degree links at the moment. In real life, most known applications of it are World Wide web(WWW) and distribution of wealth in the world.(That's why its also called "the rich get richer" process or Matthew effect) However when a deeper look to this phenomena reveals that it is actually everywhere such as paper citation distributions (http://rsif.royalsocietypublishing.org/content/11/98/20140378#sec-6), early age education where if someone has difficulty learning reading in early ages, may indicate lifelong learning problems and even in download counts and bestseller lists effect on consumer behavior(https://en.wikipedia.org/wiki/Matthew_effect#Network_science). So preferential attachment is not just an arbitrary theory to explain power laws but it's a very common phenomenon researched in many fields. 
+
+###R packages
+The "poweRlaw" package comes up with code to fit heavy tailed distributions, including discrete and continuous power-law distributions. Each model is fitted using a maximum likelihood procedure. The package is hosted on CRAN and therefore can be installed easily directly in R in the standard way. 
+As it detailly explained in the video and previously in this  essay, word frequencies found in any corpus/ book follows power law. We can check and visualize this phenomenon easily by using "poweRlaw" package. Moby dataset is already in "poweRlaw" package, and it consists of how many times each word appears in the text. (word frequencies.) In just very few lines of code, we can examine this data on a log-log plot and compare with fitted power-law. AS a result, we can easily see that, word distributions really follow power law. 
+The code and resulting figure: 
+ 
+```{r}
+library(poweRlaw)
+data("moby", package="poweRlaw")
+moby_power = displ$new(moby)
+
+moby_power$setXmin(estimate_xmin(moby_power))
+plot(moby_power)
+lines(moby_power,col=2,lwd=2)
+```
+
+Further information can be found directly in the extensive documentation found on the GitHub page
+https://github.com/csgillespie/poweRlaw
+Another method to fit a power-law distribution to a vector containing samples from a distribution a package called igraph can be used, more specifically fit power law function. It operates in two modes - either determination of alpha, if xmin is given or to determine xmin and the corresponding value alpha. As with all worthy R packages, igraph is also hosted on CRAN and can be installed in the standard way. This function is used in previous questions to determine the behavior of our data. 
+Further information can be found again on a GitHub page of the package.
+https://github.com/igraph/rigraph
+
+###Conclusion
+As we discussed in this essay, power law and its applications can be found in every aspect of our lives. It's a very broad phenomena that effects many fields and researched for different disciplines. Further research on this issue may reveal many new findings on human and nature behavior.
+
+####Reference: 
+http://statweb.stanford.edu/~owen/courses/306a/ZipfByHera.pdf
+https://en.wikipedia.org/wiki/Power_law
+http://marshalljonesjr.com/youll-remember-less-than-001-of-your-life/
+http://billyshall.com/blog/paretos-principle
+https://en.wikipedia.org/wiki/Zipf%27s_law 
+https://www.datasciencecentral.com/profiles/blogs/why-zipf-s-law-explains-so-many-big-data-and-physics-phenomenons
+http://wugology.com/zipfs-law/
+https://en.wikipedia.org/wiki/Pareto_distribution
+https://cran.r-project.org/web/packages/poweRlaw/vignettes/a_introduction.pdf
+http://rsif.royalsocietypublishing.org/content/11/98/20140378#sec-6
+https://en.wikipedia.org/wiki/Preferential_attachment
+
+
+
+

@@ -1,0 +1,315 @@
+---
+title: "HW3  - Atikkan, Dolezalova"
+author: "TD"
+date: "27 January 2018"
+---
+
+```{r}
+#getting the libraries
+require(tseries, quietly = TRUE)
+library(xts)
+library(tidyverse)
+library(RColorBrewer)
+library(manipulate)
+library(igraph)
+library(pcaPP)
+```
+
+
+We get data from yahoo! finance - companies are choosen from list of S&P 500 companies.(6 companies from each 10 sectors)
+```{r}
+Consumer_D=c('HAS','AMZN','F','JWN','GPS','NKE')
+Energy=c('XOM','MRO','OXY','HAL','CHK','COG')
+Industrials=c('MMM','ALK','BA','CAT','FDX','DE')
+Health_care=c('ABT','AET','AMGN','CELG','JNJ','PFE')
+Telecommunication=c('T','CTL','VZ','S','BCE','FTR')
+Financials=c('AXP','BLK','AON','C','GS','MET')
+Consumer_s=c('CPB','KO','TAP','K','GIS','PEP')
+IT=c('AKAM','ADBE','AAPL','CSCO','EBAY','EA')
+Materials=c('MON','IP','PX','BLL','UMC','ECL')
+Utilities=c('EIX','DUK','CMS','ES','PPL','PCG')
+
+#companies from different sectors are combined together for future manipulation
+sectors=c(Consumer_D,Energy,Industrials,Health_care,Telecommunication,Consumer_s,Financials,IT,Materials,Utilities)
+
+
+```
+
+
+Code part for obtaining data - with help of specific package, we downloaded the data from 2003 to 2008 of 60 different companies. We saved data as xts data frame structure.
+```{r}
+dataa=xts()
+for (i in seq_along(sectors)){
+  symb=sectors[i]
+  print(symb)
+  dd=suppressWarnings(
+    get.hist.quote(instrument=symb, start="2003-01-01", end="2008-01-01",
+                   quote= c("Open","Close"), provider="yahoo", drop=TRUE))
+
+  dataa=merge.xts(dataa,dd)
+}
+```
+
+
+Here we are creaeting  a new data frame that has the opening and closing data for each 60 companies. 
+```{r}
+all_comps_double=c()
+for (com in sectors){
+    a=paste(c(com,'_open'),collapse='')
+    b=paste(c(com,'_close'),collapse='')
+    all_comps_double=c(all_comps_double,a,b)
+}
+colnames(dataa)=all_comps_double
+```
+
+Closing prices of companies are saved to closin_cols data.frame
+```{r}
+##closing+boroding matrix
+dataa2=as.data.frame(dataa)
+closing_cols=select(dataa2,ends_with('close'))
+```
+
+closing_cols data.frame is appended with relative  price measure (Borodin) for each company.
+Then closing prices and  borlog measure plots are created.
+```{r}
+for (comp in names(closing_cols)){
+  new_col=paste(c(as.character(comp),'_borlog'),collapse='')
+  
+  closing_cols[[new_col]]=c(NA,diff(log(closing_cols[[comp]])))
+}
+
+#Plots for 4 selected companies:Amazon, Caterpillar, Goldman-Sachs, PepsiCo
+#First 4 plots are for closing prices and last 4 plots are borlog measure
+#Closing Prices plots
+par(mfrow=c(2,2))
+plot(closing_cols$AMZN_close,type='l',main='Amazon Inc (AMZN)',ylab='')
+plot(closing_cols$CAT_close,type='l',main='Caterpillar Inc (CAT)',ylab='')
+plot(closing_cols$GS_close,type='l',main='Goldman-Sachs Inc (GS)',ylab='')
+plot(closing_cols$PEP_close,type='l',main='PepsiCo Inc. (PEP)',ylab='')
+
+#Borlog plots
+plot(closing_cols$AMZN_close_borlog,type='l',main='Amazon Inc (AMZN)- Borlog',ylab='')
+plot(closing_cols$CAT_close_borlog,type='l',main='Caterpillar Inc (CAT)- Borlog',ylab='')
+plot(closing_cols$GS_close_borlog,type='l',main='Goldman-Sachs Inc (GS)- Borlog',ylab='')
+plot(closing_cols$PEP_close_borlog,type='l',main='PepsiCo Inc. (PEP) - Borlog',ylab='')
+
+par(mfrow=c(1,1))
+```
+
+
+Pearson correlation and Kendall correlation matrices are created using relative-price measures data. 
+For pearson correlation (base) R cor function is used.
+For Kendall correlation, since base R cor function(with method=Kendall) was too slow, we used pcaPP package. This package is also referenced in help(cor) documentation, as an faster alternative.(in the documentation of the package, it's stated that this function calculates the correlation in O(nlog(n))) complexity rather than 0(n^2).) As we've tested ourselves, it is much faster and returns same exact results with base R.  
+```{r}
+# Correlation matrices are  saved as r_pearson_hat and r_kendall_hat.
+borlog_matrix=select(closing_cols,ends_with('borlog'))
+borlog_for_kendall=borlog_matrix[-1,]
+
+r_pearson_hat=cor(borlog_matrix,method='pearson',use ='pairwise.complete.obs')
+r_kendall_hat=cor.fk(borlog_for_kendall)
+
+```
+
+
+Bootstrap procedure is implemented. Two vectors(delta_b_pearson and delta_b_kendall) are saved.
+```{r}
+#bootstrap // it takes around 2-3 minutes.
+boot_size=300
+delta_b_pearson=c()
+delta_b_kendall=c()
+n=1300
+for (b in 1:boot_size){
+  samp_pearson=borlog_matrix[sample(nrow(borlog_matrix),replace = T),]
+  r_pearson_star_hat=cor(samp_pearson,method='pearson',use='pairwise.complete.obs')
+  delta_b_pearson[b]= sqrt(n)*max(abs(r_pearson_star_hat-r_pearson_hat))
+   
+  
+  samp_kendall=borlog_for_kendall[sample(nrow(borlog_for_kendall),replace = T),]
+  r_kendall_star_hat=cor.fk(samp_kendall)
+  delta_b_kendall[b]= sqrt(n)*max(abs(r_kendall_star_hat-r_kendall_hat))
+}
+
+```
+
+Empirical CDF's of two delta vectors are created. 
+```{r}
+ecdf_pearson=ecdf(delta_b_pearson)
+ecdf_kendall=ecdf(delta_b_kendall)
+#plot(ecdf_pearson)
+#plot(ecdf_kendall)
+
+```
+
+Marginal correlation graph (for pearson correlation) is created.
+For this purpose  first confidience interval(for each correlation between stock pair i,j) is calculated with lower and  upper bounds. Then adjancency_matrix is created by checking whether epsilon interval and confidience interval we've built have any interesection. Using this adjanjency matrix the marginal correlation graph is created. The whole process made dynamic with the help of manipulate function. 
+The user is able to specify alpha and epsilon values, and select any specific sector to visualize a subgraph.
+```{r}
+pearson_plot=function(alpha=0.0010,eps=0.4,sector='All_Sectors',labels=F){
+  
+  quant=quantile(ecdf_pearson,1-alpha)
+  lower=r_pearson_hat-(quant/sqrt(n))
+  upper=r_pearson_hat+(quant/sqrt(n))
+  
+  #Adjacency matrix for pearson created by checking boundries of intervals.
+  adj_mat_pearson=matrix(data=NA,nrow=60,ncol=60)
+  colnames(adj_mat_pearson)=sectors
+  rownames(adj_mat_pearson)=sectors
+  for (i in 1:60){
+    for (j in 1:60){
+      if ((lower[i,j]>eps) || (upper[i,j]<(-eps))){
+        adj_mat_pearson[i,j]=1
+      }else{
+        adj_mat_pearson[i,j]=0
+      } 
+    }
+    }
+  
+  adj_mat_pearson[lower.tri(adj_mat_pearson)]=0
+  colll=brewer.pal(10,'Set3')
+  
+  #Empty graph is created and then nodes(companies) and edges are added
+  gg=graph.empty(n=0,directed = F)
+  for (i in 1:60){
+    sec=as.integer(i/6.1)+1
+    gg=add.vertices(gg,1,name=sectors[i],color=colll[sec])
+  }
+  
+  for (i in 1:60){
+    for (j in 1:60){
+      if (adj_mat_pearson[i,j]==1 & i!=j){
+        gg=add.edges(gg,c(sectors[i],sectors[j]))
+      }
+    }
+    }
+  
+  #For each sector, a subraph is created
+  smal_1=induced.subgraph(gg,vids=1:6,impl='copy_and_delete')
+  smal_2=induced.subgraph(gg,vids=7:12,impl='copy_and_delete')
+  smal_3=induced.subgraph(gg,vids=13:18,impl='copy_and_delete')
+  smal_4=induced.subgraph(gg,vids=19:24,impl='copy_and_delete')
+  smal_5=induced.subgraph(gg,vids=25:30,impl='copy_and_delete')
+  smal_6=induced.subgraph(gg,vids=31:36,impl='copy_and_delete')
+  smal_7=induced.subgraph(gg,vids=37:42,impl='copy_and_delete')
+  smal_8=induced.subgraph(gg,vids=43:48,impl='copy_and_delete')
+  smal_9=induced.subgraph(gg,vids=49:54,impl='copy_and_delete')
+  smal_10=induced.subgraph(gg,vids=55:60,impl='copy_and_delete')
+
+  #Corresponding graph is plotted according to the selection
+  lol=rep(labels,60)
+  if (sector=='All_Sectors') plot(gg,vertex.label=ifelse(lol,V(gg)$name,NA),main='P_All Sectors',sub=paste('# of edges:',ecount(gg)))
+  else if (sector=='Consumer_d') plot(smal_1,vertex.label=ifelse(lol,V(smal_1)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_1)))
+  else if (sector=='Energy') plot(smal_2,vertex.label=ifelse(lol,V(smal_2)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_2)))
+  else if (sector=='Industrial') plot(smal_3,vertex.label=ifelse(lol,V(smal_3)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_3)))
+  else if (sector=='Health_care') plot(smal_4,vertex.label=ifelse(lol,V(smal_4)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_4)))
+  else if (sector=='Telecommunication') plot(smal_5,vertex.label=ifelse(lol,V(smal_5)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_5)))
+  else if (sector=='Consumer_s') plot(smal_6,vertex.label=ifelse(lol,V(smal_6)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_6)))
+  else if (sector=='Financials') plot(smal_7,vertex.label=ifelse(lol,V(smal_7)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_7)))
+  else if (sector=='IT') plot(smal_8,vertex.label=ifelse(lol,V(smal_8)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_8)))
+  else if (sector=='Materials') plot(smal_9,vertex.label=ifelse(lol,V(smal_9)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_9)))
+  else if (sector=='Utilities') plot(smal_10,vertex.label=ifelse(lol,V(smal_10)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_10)))
+  
+  legend('topleft',c('Consumer_d','Energy','Industrial','Health_care','Telecommunication','Consumer_s','Financials','IT','Materials','Utilities'),col = colll,fill = colll,cex=0.7,bty='n')
+}
+
+#manipulate function is used to make whole graph dynamic
+manipulate(pearson_plot(alpha,eps,sector,labels),
+           alpha=slider(0.0001,0.0500,0.0100,step = 0.0001),
+           eps=slider(0,0.5,0.1,step=0.01),
+           sector=picker('All_Sectors','Consumer_d','Energy','Industrial',
+                     'Health_care','Telecommunication'
+                     ,'Consumer_s','Financials','IT'
+                     ,'Materials','Utilities'),
+           labels=checkbox(F))
+
+
+```
+
+
+Same procedure is applied to create Marginal correlation graph for Kendall correlation. 
+```{r}
+
+kendall_plot=function(alpha=0.0010,eps=0.4,sector='All_Sectors',labels=F){
+  
+  quant2=quantile(ecdf_kendall,1-alpha)
+  lower2=r_kendall_hat-(quant2/sqrt(n))
+  upper2=r_kendall_hat+(quant2/sqrt(n))
+  
+  #Adjacency matrix is created for kendall correlation
+  adj_mat_kendall=matrix(data=NA,nrow=60,ncol=60)
+  colnames(adj_mat_kendall)=sectors
+  rownames(adj_mat_kendall)=sectors
+  
+  for (i in 1:60){
+    for (j in 1:60){
+      if ((lower2[i,j]>eps) || (upper2[i,j]<(-eps))){
+        adj_mat_kendall[i,j]=1
+      }else{
+        adj_mat_kendall[i,j]=0
+      } 
+    }
+    }
+  
+  adj_mat_kendall[lower.tri(adj_mat_kendall)]=0
+  colll=brewer.pal(10,'Set3')
+  
+  #Graph is created
+  gg2=graph.empty(n=0,directed = F)
+  for (i in 1:60){
+    sec=as.integer(i/6.1)+1
+    gg2=add.vertices(gg2,1,name=sectors[i],color=colll[sec])
+  }
+  for (i in 1:60){
+    for (j in 1:60){
+      if (adj_mat_kendall[i,j]==1 & i!=j){
+        gg2=add.edges(gg2,c(sectors[i],sectors[j]))
+      }
+    }
+    }
+  #Subraghs for each sector
+  smal_1=induced.subgraph(gg2,vids=1:6,impl='copy_and_delete')
+  smal_2=induced.subgraph(gg2,vids=7:12,impl='copy_and_delete')
+  smal_3=induced.subgraph(gg2,vids=13:18,impl='copy_and_delete')
+  smal_4=induced.subgraph(gg2,vids=19:24,impl='copy_and_delete')
+  smal_5=induced.subgraph(gg2,vids=25:30,impl='copy_and_delete')
+  smal_6=induced.subgraph(gg2,vids=31:36,impl='copy_and_delete')
+  smal_7=induced.subgraph(gg2,vids=37:42,impl='copy_and_delete')
+  smal_8=induced.subgraph(gg2,vids=43:48,impl='copy_and_delete')
+  smal_9=induced.subgraph(gg2,vids=49:54,impl='copy_and_delete')
+  smal_10=induced.subgraph(gg2,vids=55:60,impl='copy_and_delete')
+
+  lol=rep(labels,60)
+  #Plotting of subgrapgh according to the selections
+  if (sector=='All_Sectors') plot(gg2,vertex.label=ifelse(lol,V(gg2)$name,NA),main='K_All Sectors',sub=paste('# of edges:',ecount(gg2)))
+  else if (sector=='Consumer_d') plot(smal_1,vertex.label=ifelse(lol,V(smal_1)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_1)))
+  else if (sector=='Energy') plot(smal_2,vertex.label=ifelse(lol,V(smal_2)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_2)))
+  else if (sector=='Industrial') plot(smal_3,vertex.label=ifelse(lol,V(smal_3)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_3)))
+  else if (sector=='Health_care') plot(smal_4,vertex.label=ifelse(lol,V(smal_4)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_4)))
+  else if (sector=='Telecommunication') plot(smal_5,vertex.label=ifelse(lol,V(smal_5)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_5)))
+  else if (sector=='Consumer_s') plot(smal_6,vertex.label=ifelse(lol,V(smal_6)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_6)))
+  else if (sector=='Financials') plot(smal_7,vertex.label=ifelse(lol,V(smal_7)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_7)))
+  else if (sector=='IT') plot(smal_8,vertex.label=ifelse(lol,V(smal_8)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_8)))
+  else if (sector=='Materials') plot(smal_9,vertex.label=ifelse(lol,V(smal_9)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_9)))
+  else if (sector=='Utilities') plot(smal_10,vertex.label=ifelse(lol,V(smal_10)$name,NA),main=paste(sector,'industry'),sub=paste('# of edges:',ecount(smal_10)))
+  
+  legend('topleft',c('Consumer_d','Energy','Industrial','Health_care','Telecommunication','Consumer_s','Financials','IT','Materials','Utilities'),col = colll,fill = colll,cex=0.7,bty='n')
+}
+
+manipulate(kendall_plot(alpha,eps,sector,labels),
+           alpha=slider(0.0001,0.0500,0.0100,step = 0.0001),
+           eps=slider(0,0.5,0.1,step=0.01),
+           sector=picker('All_Sectors','Consumer_d','Energy','Industrial',
+                     'Health_care','Telecommunication'
+                     ,'Consumer_s','Financials','IT'
+                     ,'Materials','Utilities'),
+           labels=checkbox(F))
+
+```
+
+Conclusion and Comparing the results..
+
+There are several important points that we can conclude from these two plots. First of all, we can see that both in Pearson and in Kendall correlation case, when epsilon is 0, even with a  very small alpha(~0.0001), which means with very high confidience, we observe a huge number of edges(correlations) between companies. From this we can say that, these companies are somehow correlated  with each other with a high confidience. This makes sense because they are all selected  from USA, so any change in economy(or stock market) would effect all of them in some degree. 
+For further analysis we need to keep alpha value same(~0.0001) and increase the epsilon value. With this change, some companies are starting to cluster  around their own sectors.
+When epsilon is around 0.10, we can clearly see some clusters of sectors. Especially Energy, utilities and Financial sectors companies seems to have higher correlations in their sectors compared to other ones. (we can see number of edges(number of correlated stocks) at the bottom of each plot)
+With a fixed small alpha value, we can also see the differences between Pearson and Kendell graphs with ranging epsilon value. When alpha is fixed to a small value, Kendell graph generally concludes more correlations between stocks. Furthermore, in order to see some interesting plots, a more  increased epsilon value is needed for Kendell compared  to Pearson, in other words, sectors start to cluster with a more increased epsilon value for Kendall correlation graph. It means that, Kendell correlation graph is more conservative in terms of claiming 'same sector companies cluster together' hypothesis compared to Pearson correlation graph. However in general, we can see the effect of being in the same sector in both graphs. So examining both grahs, we  can claim that; with a low alpha value, altough at epsilon equal to zero, we can not see a clear clustering of sectors, keeping alpha same and with increased epsilon value, stocks from the same  sector tend  to cluster together.(with a very small alpha(0.0001) and epsilon values that is around 0.1-0.15)
+
+
